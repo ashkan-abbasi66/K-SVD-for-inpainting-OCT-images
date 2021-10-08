@@ -1,33 +1,22 @@
-% NOTE: SINCE THIS FILE IS OLD I DO NOT REMEMBER MUCH ABOUT IT. HOWEVER, IT
-% WORKS CORRECTLY!
-% 
-% This file implements the inpainting experiment described in KSVD's paper.
-% The original algorithm uses a GLOBALLY learned dictionary to inpaint
-% NON-OVERLAPPING patches that are corrupted by missing values. This file
-% tries to inpaint a downsamped image using the mentioned algorithm but it
-% considers overlapping between patches to improve the performance and 
-% avoid blockiness artifact.
-% 
-% Note that this program is designed to inpaint downsampled images, not
-% randomly corrupted ones. 
-% see my_downsampler.m
+% See ksvdinpaint_global_oct_1.m
+% This file just denoises input image before inpainting procesure.
 %
-% This implementation is based on the following paper, but I tuned the
-% parameter to reach the best result:
-%     M. Filipovi?, I. Kopriva, M. Filipovific, and I. Kopriva, 
-%     "A comparison of dictionary based approaches to inpainting 
-%      and denoising with an emphasis to independent component analysis
-%      learned dictionaries," Inverse Probl. Imaging
-%      , vol. 5, no. 4, pp. 815–841, Nov. 2011.
+%  the denoising greately improves the result of the inpainting algorithm
+%  that is described in detail in the file "ksvdinpaint_global_oct_1".
+% the differences with "ksvdinpaint_global_oct_1" are as follows:
+%   SC_method='omp'; sparsity_level=2;
+%   the input is denoised 
 %
 % Dictionaries were learned from high SNR images in the training set of the
 % following paper:
 % Fang, Leyuan, et al. "Fast acquisition and reconstruction of optical 
 % coherence tomography images via sparse representation." 
 % IEEE transactions on medical imaging 32.11 (2013): 2034-2049.
-% 
-% 
-% 
+%
+% Denoising method called with "denoise_LH_NLM" which is a nonlocal mean
+% based denoising method was used by the above paper. 
+%
+%
 % Ashkan
 %% Load images and set required paths
 addpath(genpath('./Kafieh_OCT_Denoising/'));
@@ -47,24 +36,26 @@ N = R*C; % image size
 p = 8; q = 8;
 T = p*q; % patch size
 DL_method='loadfile';% 'loadfile' / 'ksvddenoise'
-SC_method='omp2'; % USE 'omp2' / 'omp'
+SC_method='omp'; % 'momp' 'omp' / 'omp2'
 sparsity_level=2;
-epsilon=p *22*1.05; 
+epsilon=p *22*1.05;%last reported by 22 & 1.15 using omp2
 % downsample image
-scale_factor = 2; % scale_factor, 1: denoising
+scale_factor = 1; % scale_factor, 1: denoising
 mode=1;
 [imnd,valid_rows,valid_cols]=...
     my_downsampler(imn,scale_factor,mode);
+% **** denoise input fairly ****
+disp('Denoising ... ')
+imnd(:,valid_cols)=denoise_LH_NLM(imnd(:,valid_cols),[8 8]);
+%
 %% Dictionary learning method
 switch DL_method
     case 'ksvddenoise'
-%         [~,D]=ksvddenoise_CWT(imnd(valid_rows,valid_cols),p,5);
         disp('Dictionary learning ...')
+%         [~,D]=ksvddenoise_CWT(imnd(valid_rows,valid_cols),p,5);
         [~,D]=ksvddenoise_CWT(imn,p,5);
     case 'loadfile'
         dict_file = 'dicts_comp_noDC_e9_it40';%'dictionary8x8.mat';%'dicts_comp_noDC_e30_it40';%'dictionary8x8.mat';
-        % e parameter was set to 9 and 40 iterations were used without DC
-        % component in learning dictionary. It was learned via K-SVD.
         load(dict_file)
         D=D{1};
 end
@@ -94,9 +85,9 @@ fprintf('Compute sparse codes of corrupted patches ....\n');
 codes=sparse_func(Xn,D,param);
 Xnhat=D*codes;
 %% merge patches
-Xnhat_dc = Xnhat+repmat(dc1,size(Xnhat,1),1);
-im_out = insert_patches_lex(Xnhat_dc,R,C,[p q],step);
-[PSNR,SSIM] = comp_psnr(im,im_out)
+Xnhat_dc=Xnhat+repmat(dc1,size(Xnhat,1),1);
+im_out=insert_patches_lex(Xnhat_dc,R,C,[p q],step);
+[PSNR,SSIM]=comp_psnr(im,im_out)
 time_end=toc;
 figure,imshow(im_out,[]),title(sprintf('PSNR=%g',PSNR))
 % save('out_ksvd_global_eps22_im3','im_out','time_end');
